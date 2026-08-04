@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Coerces any JavaScript action that still declares the Node 20 runtime onto
+# Node 24. A safety net for future additions, not a correction: every action
+# pinned below already declares node24 in its own action.yml.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: lint, typecheck, test, build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      # `npm ci` and not `npm install`: it installs exactly what the lockfile
+      # pins and fails when the lockfile and package.json have drifted, which
+      # is the drift a local `npm install` would quietly repair instead.
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm run test
+
+      # Runs last because it is the slowest, and because a build failure with
+      # green tests points at packaging rather than at the code.
+      - name: Build
+        run: npm run build
+
+      # Proves the published tarball carries what it claims: the entry points
+      # named in package.json must exist in dist/. Without this the package can
+      # be green everywhere and still install as a broken module.
+      - name: Verify package contents
+        run: |
+          npm pack --silent >/dev/null
+          tarball=$(ls astrapi69-tree-kit-*.tgz)
+          echo "Packed: $tarball ($(du -h "$tarball" | cut -f1))"
+          tar -tf "$tarball"
+          for entry in dist/index.js dist/index.cjs dist/index.d.ts dist/index.d.cts; do
+            tar -tf "$tarball" | grep -qx "package/$entry" \
+              || { echo "::error::missing from tarball: $entry"; exit 1; }
+          done
+          rm -f "$tarball"
