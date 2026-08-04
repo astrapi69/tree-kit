@@ -12,6 +12,15 @@ import {buildTreeFromFlat, count, walk} from "../src";
 
 import {ROWS, SAMPLE, type Topic} from "./fixtures";
 
+/**
+ * A mutable view of the node shape, used only to prove that a clone can be
+ * written to without the original noticing. The published type is `readonly`,
+ * so reaching for this is the test stepping outside the contract on purpose.
+ */
+interface MutableMirror {
+    children: {children: unknown[]}[];
+}
+
 describe("nodes stay serialisable", () => {
     it("survives JSON.stringify - no circular structure", () => {
         expect(() => JSON.stringify(SAMPLE)).not.toThrow();
@@ -35,6 +44,32 @@ describe("nodes stay serialisable", () => {
         const cloned = structuredClone(SAMPLE);
         expect(cloned).not.toBe(SAMPLE);
         expect(count(cloned)).toBe(4);
+    });
+
+    it("clones deeply - mutating a copy cannot reach the original", () => {
+        // Identity alone is not independence: a shallow copy is also !== the
+        // original while still sharing every nested array. This is the
+        // property the removed toRow() helper used to carry, now supplied by
+        // the clone primitives themselves.
+        //
+        // The double cast is deliberate and is itself part of the point: the
+        // published type forbids this mutation, so a test that performs it has
+        // to leave the type system on purpose.
+        const cloned = structuredClone(SAMPLE) as unknown as MutableMirror;
+        cloned.children[0].children = [];
+        cloned.children.length = 0;
+
+        expect(count(SAMPLE)).toBe(4);
+        expect(SAMPLE.children).toHaveLength(2);
+        expect(SAMPLE.children[0].children).toHaveLength(1);
+    });
+
+    it("JSON round-trip is independent of the original too", () => {
+        const restored = JSON.parse(JSON.stringify(SAMPLE)) as MutableMirror;
+        restored.children[0].children = [];
+
+        expect(count(SAMPLE)).toBe(4);
+        expect(SAMPLE.children[0].children).toHaveLength(1);
     });
 
     it("holds for a built forest too, not just a hand-written tree", () => {

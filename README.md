@@ -146,6 +146,26 @@ each row to its parent with an O(1) lookup. Duplicate ids, unknown parent
 references and cycles all throw with the offending ids named — a silent drop
 would hide the upstream bug that produced them.
 
+## Maturity: which half is proven
+
+The package ships two surfaces, and they do not carry the same weight of
+evidence. The version number says so on purpose.
+
+**`TreeNode` and `buildTreeFromFlat` are proven by use.** They were migrated
+into a real application before this package was first published: five lines
+changed, 735 deleted, no addition needed. The shape held against a consumer.
+
+**`TreeCursor` is proven by tests only.** No consumer has used `parent()`,
+`path()` or `depth()` yet. It exists because the alternative was a parent
+pointer on the node, which would have cost `JSON.stringify` and
+`structuredClone` — that reasoning stands on its own. But a surface without a
+user is a prediction about what someone will need, and its first real use
+(keyboard focus and breadcrumbs in a menu engine) is still ahead. Expect it to
+move before 1.0.
+
+This is what `0.x` is for. One half is verified, one half is expected, and the
+number should not claim otherwise.
+
 ## Development
 
 ```bash
