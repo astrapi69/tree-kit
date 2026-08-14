@@ -6,9 +6,16 @@
  * pass to link each row into its parent with an O(1) lookup. Searching the
  * array for each parent instead would be O(n^2).
  *
- * Every structural defect fails loudly. A silent drop of unlinkable rows hides
- * the backend bug that produced them, and the symptom then surfaces much later
- * as "some items are missing from the tree".
+ * Every structural defect fails loudly BY DEFAULT. A silent drop of
+ * unlinkable rows hides the backend bug that produced them, and the symptom
+ * then surfaces much later as "some items are missing from the tree".
+ *
+ * Views that must render whatever the data holds opt into
+ * `onInvalidParent: "promoteToRoot"` instead: rows whose parent is unknown or
+ * whose ancestor chain never reaches a root become roots themselves, so
+ * filtered-out parents and corrupted chains degrade visibly instead of
+ * throwing. Duplicate ids stay a hard error in both modes - two rows with one
+ * id is corruption no placement can express.
  */
 
 import type {TreeNode} from "../types/tree";
@@ -41,6 +48,20 @@ export interface BuildTreeOptions<V, K> {
      * use field accessors directly. Omit to keep input order.
      */
     sort?: (a: V, b: V) => number;
+    /**
+     * What to do with a row whose parent cannot anchor it: the parent id
+     * names no row, or the ancestor chain never reaches a root (a cycle).
+     *
+     * - `"throw"` (default): fail loudly - the right answer for data that
+     *   is supposed to be sound, because silent repair hides the bug that
+     *   produced it.
+     * - `"promoteToRoot"`: the row becomes a root - the right answer for
+     *   views over filtered or possibly corrupted data, where rendering
+     *   everything beats crashing the one surface that could show it.
+     *
+     * Duplicate ids throw in BOTH modes.
+     */
+    onInvalidParent?: "throw" | "promoteToRoot";
 }
 
 /**
@@ -70,14 +91,77 @@ export function buildTreeFromFlat<V, K>(
     rows: readonly V[],
     options: BuildTreeOptions<V, K>,
 ): TreeNode<V, K>[] {
-    const {getId, getParentId, sort} = options;
+    const {getId, getParentId, sort, onInvalidParent = "throw"} = options;
 
     const nodesById = indexRows(rows, getId);
-    const roots = linkChildren(rows, nodesById, getId, getParentId);
+    const effectiveParentId =
+        onInvalidParent === "promoteToRoot"
+            ? tolerantParentResolver(rows, getId, getParentId)
+            : getParentId;
+    const roots = linkChildren(rows, nodesById, getId, effectiveParentId);
     assertFullyReachable(roots, nodesById);
     if (sort) sortForest(roots, sort);
 
     return roots;
+}
+
+/**
+ * Build a parent accessor that resolves every structurally invalid parent to
+ * `null` (root): unknown parent ids, and rows whose ancestor chain never
+ * terminates. "Never terminates" covers both the cycle members themselves and
+ * rows hanging below a cycle - neither chain ever reaches a root.
+ *
+ * Memoised: each row's "does my chain terminate?" answer is computed once, so
+ * the resolution stays O(n) over the whole row set instead of O(n * depth).
+ */
+function tolerantParentResolver<V, K>(
+    rows: readonly V[],
+    getId: (value: V) => K,
+    getParentId: (value: V) => K | null | undefined,
+): (value: V) => K | null {
+    const parentOf = new Map<K, K | null>();
+    for (const value of rows) {
+        const rawParent = getParentId(value);
+        parentOf.set(getId(value), rawParent ?? null);
+    }
+
+    // terminates.get(id): true = chain reaches a root, false = it loops.
+    const terminates = new Map<K, boolean>();
+    const resolveChain = (startId: K): void => {
+        const path: K[] = [];
+        const onPath = new Set<K>();
+        let current: K | null = startId;
+        let verdict = true;
+        while (current !== null) {
+            const known = terminates.get(current);
+            if (known !== undefined) {
+                verdict = known;
+                break;
+            }
+            if (onPath.has(current)) {
+                verdict = false; // closed a loop within this walk
+                break;
+            }
+            onPath.add(current);
+            path.push(current);
+            const next: K | null | undefined = parentOf.get(current);
+            if (next === undefined || next === null) {
+                verdict = true; // root, or unknown parent (promoted below)
+                break;
+            }
+            current = parentOf.has(next) ? next : null;
+        }
+        for (const id of path) terminates.set(id, verdict);
+    };
+
+    return (value: V): K | null => {
+        const id = getId(value);
+        const rawParent = getParentId(value);
+        if (rawParent === null || rawParent === undefined) return null;
+        if (!parentOf.has(rawParent)) return null; // unknown parent
+        resolveChain(id);
+        return terminates.get(id) ? rawParent : null;
+    };
 }
 
 /** Pass 1: one node shell per row, indexed by id. Rejects duplicate ids. */
