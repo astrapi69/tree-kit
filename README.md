@@ -220,6 +220,16 @@ move before 1.0.
 This is what `0.x` is for. One half is verified, one half is expected, and the
 number should not claim otherwise.
 
+## Examples
+
+Runnable scripts under [`examples/`](examples/): the happy path
+(build, sort, cursor traversal, serialisation) and the tolerant mode
+side by side with the strict default on the same defective rows.
+
+```bash
+npm run build && node examples/tolerant-view.mjs
+```
+
 ## Development
 
 ```bash
