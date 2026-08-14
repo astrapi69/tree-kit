@@ -64,6 +64,51 @@ for (const cursor of walkForest(forest)) {
 localStorage.setItem("topics", JSON.stringify(forest))
 ```
 
+## Strict by default, tolerant on request
+
+`buildTreeFromFlat` rejects structural defects loudly — the right answer
+for data that is supposed to be sound, because a silent repair hides the
+upstream bug that produced it. Views are different: a page rendering
+FILTERED rows, or whatever a sync left behind, must show the data it has,
+not crash on the row it cannot place. That is what
+`onInvalidParent: "promoteToRoot"` is for:
+
+```ts
+const forest = buildTreeFromFlat<Category, string>(rows, {
+  getId: (row) => row.path,
+  getParentId: (row) => row.parentPath,
+  onInvalidParent: "promoteToRoot",
+})
+```
+
+| Defect | `"throw"` (default) | `"promoteToRoot"` |
+|---|---|---|
+| Parent id names no row | `Error: ... references unknown parent` | Row becomes a root |
+| Cycle (`a -> b -> a`) | `Error: cycle detected` | Every member becomes a root |
+| Row hanging below a cycle | `Error: cycle or orphan rows` | Becomes a root too — its chain never terminates either |
+| Duplicate id | `Error: duplicate id` | **Still throws.** Two rows with one id is corruption no placement can express |
+
+The rule is one sentence: *a row is promoted to a root when its parent id
+names no row, or its ancestor chain never reaches a root.* Valid nesting
+in the same input stays intact, promoted roots take part in the sibling
+`sort` like real ones, and the resolution is memoised so the build stays
+O(n).
+
+Which mode belongs where:
+
+- **Ingest, import, persistence** — keep the default. If a workbook or
+  API response carries a dangling reference, you want the exception and
+  the offending id, not a silently reshaped tree.
+- **Rendering** — opt in. The two real-world shapes this option came
+  from: a category tree where a child can outlive its deleted parent
+  (orphan report exists, the view must still render), and an inventory
+  view over a FILTERED row list, where a visible child of a filtered-out
+  parent must not vanish.
+- **Custom degradation** — stays yours. `promoteToRoot` promotes to the
+  FOREST root; if your domain wants something else (Topos degrades
+  containers to their type/owner group instead), resolve parents
+  yourself before building and keep the option as a second net.
+
 ## Traversal is `for...of`
 
 There is no Visitor callback and no sentinel return value. Stop with `break`.
@@ -107,7 +152,7 @@ find(topics, (cursor) => cursor.id === someLessonId)   // compile error
 | `TreeCursor<V, K>` | type | Navigable position inside a tree |
 | `TraversalStrategy` | type | `"pre" \| "post" \| "breadth"` |
 | `DisplayFormatter<V>` | type | `(value: V) => string` |
-| `BuildTreeOptions<V, K>` | type | Key extractors and optional sibling sort |
+| `BuildTreeOptions<V, K>` | type | Key extractors, optional sibling sort, `onInvalidParent` |
 | `buildTreeFromFlat` | fn | Flat `(id, parentId)` rows into a forest, O(n) |
 | `rootCursor` | fn | Cursor at a node, treated as a root |
 | `walk` | fn | Generator over one subtree |
@@ -144,7 +189,11 @@ handled like any other input. Pinned by a 50 000-level test.
 **Construction is O(n).** One pass indexes rows by id in a `Map`, one pass links
 each row to its parent with an O(1) lookup. Duplicate ids, unknown parent
 references and cycles all throw with the offending ids named — a silent drop
-would hide the upstream bug that produced them.
+would hide the upstream bug that produced them. The tolerant mode
+(`onInvalidParent: "promoteToRoot"`) trades the exception for a visible
+degradation — promotion to a root — and only for the two defects a view can
+meaningfully survive; duplicate ids stay fatal in both modes. Its chain
+resolution is memoised, so tolerance costs no complexity class.
 
 ## Maturity: which half is proven
 
@@ -154,6 +203,11 @@ evidence. The version number says so on purpose.
 **`TreeNode` and `buildTreeFromFlat` are proven by use.** They were migrated
 into a real application before this package was first published: five lines
 changed, 735 deleted, no addition needed. The shape held against a consumer.
+The tolerant mode (0.2.0) came the same way, from the consumer side: Topos had
+written the identical pre-sanitizer twice (a category tree tolerating orphans,
+an inventory tree over filtered rows), and adaptive-learner called the builder
+raw - a latent crash on the first dangling reference. The option replaced both
+sanitizers; the consumers' existing behaviour pins stayed green unchanged.
 
 **`TreeCursor` is proven by tests only.** No consumer has used `parent()`,
 `path()` or `depth()` yet. It exists because the alternative was a parent
