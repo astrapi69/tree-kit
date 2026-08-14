@@ -163,3 +163,101 @@ describe("buildTreeFromFlat()", () => {
         expect(leaf?.depth()).toBe(49_999);
     });
 });
+
+describe("buildTreeFromFlat() with onInvalidParent: 'promoteToRoot'", () => {
+    interface Row {
+        id: string;
+        parentId: string | null;
+        pos?: number;
+    }
+    const options = {
+        getId: (row: Row) => row.id,
+        getParentId: (row: Row) => row.parentId,
+        onInvalidParent: "promoteToRoot" as const,
+    };
+
+    it("promotes a row with an unknown parent to a root", () => {
+        // Real-world shape (Topos categoryTree): a category can outlive
+        // its parent; the child becomes a root, the data still renders.
+        const forest = buildTreeFromFlat<Row, string>(
+            [
+                {id: "a", parentId: null},
+                {id: "waise", parentId: "geloescht"},
+            ],
+            options,
+        );
+        expect(forest.map((node) => node.id).sort()).toEqual(["a", "waise"]);
+    });
+
+    it("promotes cycle members instead of throwing", () => {
+        // Real-world shape (Topos inventoryTree): corrupted data must
+        // render, not crash the only view that could show it.
+        const forest = buildTreeFromFlat<Row, string>(
+            [
+                {id: "a", parentId: "b"},
+                {id: "b", parentId: "a"},
+            ],
+            options,
+        );
+        expect(forest.map((node) => node.id).sort()).toEqual(["a", "b"]);
+    });
+
+    it("promotes a row whose ancestor chain never reaches a root", () => {
+        // c hangs under a cycle: its chain never terminates either.
+        const forest = buildTreeFromFlat<Row, string>(
+            [
+                {id: "a", parentId: "b"},
+                {id: "b", parentId: "a"},
+                {id: "c", parentId: "a"},
+            ],
+            options,
+        );
+        expect(forest.map((node) => node.id).sort()).toEqual(["a", "b", "c"]);
+    });
+
+    it("keeps valid nesting intact alongside promotions", () => {
+        const forest = buildTreeFromFlat<Row, string>(
+            [
+                {id: "root", parentId: null},
+                {id: "kind", parentId: "root"},
+                {id: "waise", parentId: "fehlt"},
+            ],
+            options,
+        );
+        const root = forest.find((node) => node.id === "root");
+        expect(root?.children.map((child) => child.id)).toEqual(["kind"]);
+        expect(forest.map((node) => node.id).sort()).toEqual(["root", "waise"]);
+    });
+
+    it("still rejects duplicate ids - that is corruption, not degradable", () => {
+        expect(() =>
+            buildTreeFromFlat<Row, string>(
+                [
+                    {id: "a", parentId: null},
+                    {id: "a", parentId: null},
+                ],
+                options,
+            ),
+        ).toThrow(/duplicate id/);
+    });
+
+    it("sorts promoted roots together with the real ones", () => {
+        const forest = buildTreeFromFlat<Row, string>(
+            [
+                {id: "b", parentId: "fehlt", pos: 2},
+                {id: "a", parentId: null, pos: 1},
+            ],
+            {...options, sort: (x, y) => (x.pos ?? 0) - (y.pos ?? 0)},
+        );
+        expect(forest.map((node) => node.id)).toEqual(["a", "b"]);
+    });
+
+    it("default stays 'throw' - existing callers see no change", () => {
+        expect(() =>
+            buildTreeFromFlat<Row, string>([{id: "a", parentId: "fehlt"}], {
+                getId: (row) => row.id,
+                getParentId: (row) => row.parentId,
+            }),
+        ).toThrow(/unknown parent/);
+    });
+});
