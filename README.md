@@ -144,6 +144,70 @@ const topics: TreeNode<Topic, TopicId> = /* ... */
 find(topics, (cursor) => cursor.id === someLessonId)   // compile error
 ```
 
+## Editing is copy-on-write
+
+`TreeNode` is `readonly`, so editing a tree means building a new one. Every
+mutation takes a forest and a cursor at the target, and returns a **new**
+forest — the input is never touched. Only the nodes from a root down to the
+edit are re-allocated; every sibling subtree and untouched root comes back by
+identity (`===`), so a deep change costs O(depth) new objects, not O(n). The
+result stays `JSON.stringify`- and `structuredClone`-safe like everything the
+builder makes.
+
+```ts
+import {addChild, moveNode, removeNode, updateValue, find} from "@astrapi69/tree-kit"
+
+const target = find(forest[0], (c) => c.id === "menu")!
+const withItem = addChild(forest, target, {id: "help", value: {label: "Help"}, children: []})
+
+const renamed = updateValue(withItem, find(withItem[0], (c) => c.id === "help")!, {label: "Support"})
+
+// Drag & drop: reparent a subtree. Throws if the target is inside the source.
+const dst = find(renamed[0], (c) => c.id === "sidebar")!
+const src = find(renamed[0], (c) => c.id === "help")!
+const moved = moveNode(renamed, src, dst)
+
+const pruned = removeNode(moved, find(moved[0], (c) => c.id === "help")!)
+```
+
+Untouched subtrees keep their identity, which is exactly what memoised renders
+and cheap undo stacks rely on:
+
+```ts
+const next = updateValue(forest, deepCursor, newValue)
+next[0].children[1] === forest[0].children[1]   // true — off the edited path
+```
+
+`flatten` is the inverse of `buildTreeFromFlat`: a forest back to parent-linked
+rows, in pre-order, so the two round-trip.
+
+```ts
+const rows = flatten(forest)          // [{id, parentId, value}, ...]
+const again = buildTreeFromFlat(rows, {getId: (r) => r.id, getParentId: (r) => r.parentId})
+```
+
+## Transform and query
+
+`mapValues`, `filterTree` and `reduceTree` are the tree-shaped counterparts to
+`Array`'s `map` / `filter` / `reduce`. `filterTree` keeps the hierarchy of the
+survivors — dropping an intermediate node promotes its kept descendants rather
+than deleting them — so it returns a forest, unlike `findAll`'s flat list.
+
+```ts
+const titles = mapValues(forest[0], (topic) => topic.title)          // TreeNode<string>
+const published = filterTree(forest[0], (n) => n.value.status !== "draft")
+const total = reduceTree(forest[0], (sum, topic) => sum + topic.position, 0)
+```
+
+The structural queries mirror the Java forebears' vocabulary
+(`getAllSiblings`, level/depth, ancestor tests) without their mutable node:
+`height`, `siblings`, `isAncestor` / `isDescendant`, `lowestCommonAncestor`,
+`extractSubtree`, `cloneSubtree`.
+
+```ts
+lowestCommonAncestor(childA, childB)?.id   // breadcrumb / permission scope
+```
+
 ## API
 
 | Export | Kind | Purpose |
@@ -153,6 +217,7 @@ find(topics, (cursor) => cursor.id === someLessonId)   // compile error
 | `TraversalStrategy` | type | `"pre" \| "post" \| "breadth"` |
 | `DisplayFormatter<V>` | type | `(value: V) => string` |
 | `BuildTreeOptions<V, K>` | type | Key extractors, optional sibling sort, `onInvalidParent` |
+| `FlatNode<V, K>` | type | `{id, parentId, value}` row produced by `flatten` |
 | `buildTreeFromFlat` | fn | Flat `(id, parentId)` rows into a forest, O(n) |
 | `rootCursor` | fn | Cursor at a node, treated as a root |
 | `walk` | fn | Generator over one subtree |
@@ -160,6 +225,21 @@ find(topics, (cursor) => cursor.id === someLessonId)   // compile error
 | `find` / `findAll` | fn | First / all matching cursors |
 | `count` | fn | Node count including the root |
 | `displayValue` | fn | Label for a node, via an optional formatter |
+| `addChild` | fn | Append a child, copy-on-write → new forest |
+| `removeNode` | fn | Drop a node and its subtree → new forest |
+| `moveNode` | fn | Reparent a subtree; throws on a cyclic move |
+| `updateValue` | fn | Replace one node's value, keep its subtree |
+| `replaceSubtree` | fn | Swap the subtree at a cursor |
+| `flatten` | fn | Forest → parent-linked rows, inverse of the builder |
+| `mapValues` | fn | New tree with transformed values, ids preserved |
+| `filterTree` | fn | Keep matches, reparent survivors → forest |
+| `reduceTree` | fn | Fold all values into one accumulator |
+| `height` | fn | Deepest descent below a node |
+| `siblings` | fn | The cursor's same-parent neighbours |
+| `isAncestor` / `isDescendant` | fn | Proper ancestor / descendant test |
+| `lowestCommonAncestor` | fn | Nearest node above two cursors |
+| `extractSubtree` | fn | The subtree at a cursor as a standalone tree |
+| `cloneSubtree` | fn | Deep, independent copy with optional id remap |
 
 ## Design notes
 

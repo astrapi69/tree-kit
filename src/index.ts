@@ -37,3 +37,25 @@ export {rootCursor} from "./tree/cursor";
 export {count, find, findAll, walk, walkForest} from "./tree/walk";
 export {buildTreeFromFlat, type BuildTreeOptions} from "./tree/build";
 export {displayValue} from "./utils/display";
+
+export {
+    addChild,
+    removeNode,
+    moveNode,
+    updateValue,
+    replaceSubtree,
+    mapValues,
+    flatten,
+    type FlatNode,
+} from "./tree/mutations";
+export {
+    height,
+    siblings,
+    isAncestor,
+    isDescendant,
+    lowestCommonAncestor,
+    extractSubtree,
+    cloneSubtree,
+    reduceTree,
+    filterTree,
+} from "./tree/query";
