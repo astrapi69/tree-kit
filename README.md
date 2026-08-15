@@ -287,7 +287,10 @@ The tolerant mode (0.2.0) came the same way, from the consumer side: Topos had
 written the identical pre-sanitizer twice (a category tree tolerating orphans,
 an inventory tree over filtered rows), and adaptive-learner called the builder
 raw - a latent crash on the first dangling reference. The option replaced both
-sanitizers; the consumers' existing behaviour pins stayed green unchanged.
+Topos sanitizers with their behaviour pins staying green unchanged, and
+adaptive-learner closed its latent crash with the one-line opt-in (its
+curriculum now renders an orphaned topic at top level instead of throwing) -
+two applications consume the tolerant mode in production.
 
 **`TreeCursor` is proven by tests only.** No consumer has used `parent()`,
 `path()` or `depth()` yet. It exists because the alternative was a parent
