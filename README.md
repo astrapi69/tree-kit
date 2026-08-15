@@ -311,6 +311,30 @@ cursor: a surface without a consumer is a prediction.
 This is what `0.x` is for. One surface is verified by use, two are
 expected, and the number should not claim otherwise.
 
+## Planned, awaiting a consumer
+
+Some API is deliberately not built yet. The rule (see
+[CONTRIBUTING](CONTRIBUTING.md)): new surface needs a real caller, not a
+use case - a library grows credibility by what it refuses to predict.
+Each entry below is tracked, with the trigger that would turn it into
+code:
+
+| Idea | Trigger that unlocks it | Tracked |
+|---|---|---|
+| `merge(forestA, forestB)` with a conflict strategy | Live collaboration or two-source sync in a consumer app | [#9](https://github.com/astrapi69/tree-kit/issues/9) |
+| `diff(forestA, forestB)` for incremental updates | Same - shipping deltas instead of whole forests | [#9](https://github.com/astrapi69/tree-kit/issues/9) |
+| Orphan-collection variant of `onInvalidParent` | A caller that wants to HANDLE invalid rows programmatically instead of rendering them promoted | [#10](https://github.com/astrapi69/tree-kit/issues/10) |
+
+Two shipped surfaces are in the same waiting room, just further along:
+the cursor (its first real use - keyboard focus and breadcrumbs - is
+still ahead) and the 0.3.0 mutation surface, whose first named
+candidate is reparenting curriculum topics via `moveNode` in
+adaptive-learner. The maturity section above tracks both honestly.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for the release history.
+
 ## Examples
 
 Runnable scripts under [`examples/`](examples/): the happy path
