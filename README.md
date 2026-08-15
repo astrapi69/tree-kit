@@ -275,10 +275,10 @@ degradation — promotion to a root — and only for the two defects a view can
 meaningfully survive; duplicate ids stay fatal in both modes. Its chain
 resolution is memoised, so tolerance costs no complexity class.
 
-## Maturity: which half is proven
+## Maturity: which surface is proven
 
-The package ships two surfaces, and they do not carry the same weight of
-evidence. The version number says so on purpose.
+The package ships three surfaces, and they do not carry the same weight
+of evidence. The version number says so on purpose.
 
 **`TreeNode` and `buildTreeFromFlat` are proven by use.** They were migrated
 into a real application before this package was first published: five lines
@@ -297,17 +297,28 @@ user is a prediction about what someone will need, and its first real use
 (keyboard focus and breadcrumbs in a menu engine) is still ahead. Expect it to
 move before 1.0.
 
-This is what `0.x` is for. One half is verified, one half is expected, and the
-number should not claim otherwise.
+**The mutation and query surface (0.3.0) is proven by tests only, and by
+design review.** 110 tests pin copy-on-write semantics, structural sharing
+and the cyclic-move guard, and the runnable example asserts the sharing
+property live (`===` on the untouched subtree). But no application edits
+its trees through this surface yet - the first candidate (reparenting
+topics in a curriculum view) is known and still ahead. Same caveat as the
+cursor: a surface without a consumer is a prediction.
+
+This is what `0.x` is for. One surface is verified by use, two are
+expected, and the number should not claim otherwise.
 
 ## Examples
 
 Runnable scripts under [`examples/`](examples/): the happy path
-(build, sort, cursor traversal, serialisation) and the tolerant mode
-side by side with the strict default on the same defective rows.
+(build, sort, cursor traversal, serialisation), the tolerant mode side
+by side with the strict default on the same defective rows, and the
+copy-on-write surface - a move with the structural-sharing identity
+check, the cyclic-move refusal, and `flatten` closing the circle back
+to rows.
 
 ```bash
-npm run build && node examples/tolerant-view.mjs
+npm run build && node examples/mutations.mjs
 ```
 
 ## Development
